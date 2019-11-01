@@ -1,0 +1,8 @@
+{
+  "sipgateBearerToken": "bearer token from oauth flow",
+  "ldapHost": "localhost",
+  "ldapPort": 389,
+  "ldapBindUser": "cn=admin,dc=example,dc=org",
+  "ldapBindPassword": "admin",
+  "ldapBaseDn": "ou=contacts,dc=example,dc=org"
+}

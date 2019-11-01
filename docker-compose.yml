@@ -1,0 +1,23 @@
+version: '3.7'
+services:
+  ldap:
+    image: osixia/openldap:1.2.4
+    restart: always
+    environment:
+      LDAP_ORGANISATION: "sanitaetshaus"
+      LDAP_DOMAIN: "schich.tel"
+      LDAP_ADMIN_PASSWORD: "sicher"
+    expose:
+      - "389/tcp" # non-TLS LDAP
+    ports:
+      - 389:389
+    volumes:
+      - type: volume
+        source: ldap-db
+        target: /var/lib/ldap
+      - type: volume
+        source: ldap-conf
+        target: /etc/ldap/slapd.d
+volumes:
+  ldap-db:
+  ldap-conf:
