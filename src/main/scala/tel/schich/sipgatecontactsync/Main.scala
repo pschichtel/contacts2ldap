@@ -146,32 +146,39 @@ object Main extends StrictLogging {
         val attribute = entry.get(attributeName)
         if (attribute != null) {
             val ldapValue = attribute.get().toString
-            if (ldapValue != contactValue) Some(new DefaultModification(ModificationOperation.REPLACE_ATTRIBUTE, attributeName, contactValue))
-            else None
+            if (ldapValue != contactValue) {
+                if (contactValue.nonEmpty) Some(new DefaultModification(ModificationOperation.REPLACE_ATTRIBUTE, attributeName, contactValue)) // different value -> replace
+                else Some(new DefaultModification(ModificationOperation.REMOVE_ATTRIBUTE, attributeName)) // empty value -> remove
+            }
+            else None // unchanged -> nop
         } else {
-            Some(new DefaultModification(ModificationOperation.ADD_ATTRIBUTE, attributeName, contactValue))
+            Some(new DefaultModification(ModificationOperation.ADD_ATTRIBUTE, attributeName, contactValue)) // new attribute -> add
         }
     }
 
     def compareAndModify(entry: Entry, attributeName: String, contactValues: Set[String]): Seq[Modification] = {
         val attribute = entry.get(attributeName)
         if (attribute != null) {
-            val ldapValues = attribute.iterator().asScala.map(_.toString).toSet
-            val obsoleteValues = ldapValues.filterNot(contactValues.contains).toSeq
-            val newValues = contactValues.filterNot(ldapValues.contains).toSeq
+            if (contactValues.isEmpty) {
+                Seq(new DefaultModification(ModificationOperation.REMOVE_ATTRIBUTE, attributeName)) // no values empty -> remove entire attribute
+            } else {
+                val ldapValues = attribute.iterator().asScala.map(_.toString).toSet
+                val obsoleteValues = ldapValues.filterNot(contactValues.contains).toSeq
+                val newValues = contactValues.filterNot(ldapValues.contains).toSeq
 
-            val removal = if (obsoleteValues.nonEmpty) {
-                Seq(new DefaultModification(ModificationOperation.REMOVE_ATTRIBUTE, attributeName, obsoleteValues: _*))
-            } else Nil
+                val removal = if (obsoleteValues.nonEmpty) {
+                    Seq(new DefaultModification(ModificationOperation.REMOVE_ATTRIBUTE, attributeName, obsoleteValues: _*)) // remove obsolete values
+                } else Nil
 
-            val addition = if (newValues.nonEmpty) {
-                Seq(new DefaultModification(ModificationOperation.ADD_ATTRIBUTE, attributeName, newValues: _*))
-            } else Nil
+                val addition = if (newValues.nonEmpty) {
+                    Seq(new DefaultModification(ModificationOperation.ADD_ATTRIBUTE, attributeName, newValues: _*)) // add new values
+                } else Nil
 
-            removal ++ addition
+                removal ++ addition
+            }
         } else {
             if (contactValues.nonEmpty) {
-                Seq(new DefaultModification(ModificationOperation.ADD_ATTRIBUTE, attributeName, contactValues.toSeq: _*))
+                Seq(new DefaultModification(ModificationOperation.ADD_ATTRIBUTE, attributeName, contactValues.toSeq: _*)) // no existing attribute -> add all new values
             } else Nil
         }
     }
@@ -183,9 +190,13 @@ object Main extends StrictLogging {
         for ((attributeName, mapping) <- AttributeMappings) {
             mapping(contact) match {
                 case Left(value) =>
-                    entry.add(attributeName, value)
+                    if (value.nonEmpty) {
+                        entry.add(attributeName, value)
+                    }
                 case Right(values) =>
-                    entry.add(attributeName, values.toSeq: _*)
+                    if (values.nonEmpty) {
+                        entry.add(attributeName, values.toSeq: _*)
+                    }
             }
         }
 
@@ -194,6 +205,7 @@ object Main extends StrictLogging {
         } catch {
             case e: LdapOperationException =>
                 logger.warn("Failed to add entry!", e)
+                logger.warn(s"$entry")
         }
     }
 
