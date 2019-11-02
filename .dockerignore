@@ -1,0 +1,10 @@
+project/project
+target
+.idea
+/*.json
+/*.yml
+.dockerignore
+Dockerfile
+Jenkinsfile
+.git
+.gitignore
