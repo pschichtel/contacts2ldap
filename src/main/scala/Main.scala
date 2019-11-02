@@ -1,3 +1,5 @@
+import java.nio.file.{Files, Path, Paths}
+
 import akka.actor.ActorSystem
 import akka.stream.ActorMaterializer
 import org.apache.directory.api.ldap.model.entry.{DefaultEntry, Entry}
@@ -44,8 +46,8 @@ object Main {
         ldapConn
     }
 
-    def readConfig(path: String): SipgateImportConfig = {
-        val content = Source.fromFile(path).mkString
+    def readConfig(path: Path): SipgateImportConfig = {
+        val content = Source.fromFile(path.toFile).mkString
         Json.parse(content).as[SipgateImportConfig]
     }
 
@@ -131,34 +133,45 @@ object Main {
             System.exit(1)
         }
 
-        val config = readConfig(args(0))
+        val configPath = Paths.get(args(0))
+        if (!Files.isReadable(configPath)) {
+            System.err.println(s"Config file $configPath is not readable!")
+            System.exit(2)
+        }
+
+        val config = readConfig(configPath)
 
         println()
 
-        implicit val system = ActorSystem()
+        val system = ActorSystem()
         system.registerOnTermination {
             System.exit(0)
         }
-        val wsClient = StandaloneAhcWSClient()(ActorMaterializer())
+        val wsClient = StandaloneAhcWSClient()(ActorMaterializer()(system))
 
         val futureContacts = buildRequest(wsClient, config)
             .get()
             .map { r =>
-                r.body[JsValue].as[Contacts]
+                if (r.status == 200) Right(r.body[JsValue].as[Contacts])
+                else Left(s"HTTP request failed: ${r.statusText}")
             }
 
 
-        val finished = futureContacts.flatMap { contacts =>
-            connectAndBindToLdap(config).map { ldapConn =>
-                try {
-                    importContacts(config, contacts.items, ldapConn)
-                } finally {
-                    ldapConn.close()
+        val finished = futureContacts.flatMap {
+            case Right(contacts) =>
+                connectAndBindToLdap(config).map { ldapConn =>
+                    try {
+                        importContacts(config, contacts.items, ldapConn)
+                    } finally {
+                        ldapConn.close()
+                    }
                 }
-            }
+            case Left(error) =>
+                System.err.println(s"Error: $error")
+                Future.successful(())
         }
 
-        Await.result(finished, Duration.Inf)
+        Await.ready(finished, Duration.Inf)
         wsClient.close()
         system.terminate()
     }
