@@ -2,14 +2,22 @@ import com.google.i18n.phonenumbers.{NumberParseException, PhoneNumberUtil}
 import com.google.i18n.phonenumbers.PhoneNumberUtil.PhoneNumberFormat
 import play.api.libs.json.{Format, JsError, JsResult, JsString, JsSuccess, JsValue, Json}
 
-case class SipgateImportConfig(sipgateBearerToken: String, ldapHost: String, ldapPort: Int, ldapBindUser: String, ldapBindPassword: String, ldapBaseDn: String)
+case class SipgateImportConfig(sipgateAuth: String, ldapHost: String, ldapPort: Int, ldapBindUser: String, ldapBindPassword: String, ldapBaseDn: String)
 
 object SipgateImportConfig {
     implicit val format: Format[SipgateImportConfig] = Json.format
 }
 
 case class Contacts(items: Seq[Contact])
-case class Contact(id: String, name: String, picture: Option[String], emails: Seq[ContactEmail], numbers: Seq[ContactNumber], addresses: Seq[ContactAddress], organization: Seq[Seq[String]], scope: String)
+case class Contact(id: String, name: String, picture: Option[String], emails: Seq[ContactEmail], numbers: Seq[ContactNumber], addresses: Seq[ContactAddress], organization: Seq[Seq[String]], scope: String) {
+    val trimmedName: String = name.trim
+    val hasName: Boolean = this.trimmedName.nonEmpty
+    val surname: String = {
+        val lastSpace = this.trimmedName.lastIndexOf(' ')
+        if (lastSpace == -1) this.trimmedName
+        else this.trimmedName.substring(lastSpace + 1)
+    }
+}
 case class ContactEmail(email: String, `type`: Seq[String])
 case class ContactNumber(number: ContactNumber.InternationalNumber, `type`: Seq[String])
 case class ContactAddress(poBox: Option[String], extendedAddress: Option[String], streetAddress: Option[String], locality: Option[String], region: Option[String], postalCode: Option[String], country: Option[String])

@@ -2,7 +2,7 @@ import java.nio.file.{Files, Path, Paths}
 
 import akka.actor.ActorSystem
 import akka.stream.ActorMaterializer
-import org.apache.directory.api.ldap.model.entry.{DefaultEntry, Entry}
+import org.apache.directory.api.ldap.model.entry._
 import org.apache.directory.api.ldap.model.exception.{LdapException, LdapOperationException}
 import org.apache.directory.api.ldap.model.message.SearchScope
 import org.apache.directory.api.ldap.model.name.Dn
@@ -23,6 +23,19 @@ object Main {
 
     val SipgateContactsEndpoint = "https://api.sipgate.com/v2/contacts"
     //val SipgateContactsEndpoint = "http://localhost:4444/v2/contacts"
+
+    val ObjectClasses: Set[String] = Set("top", "inetOrgPerson")
+    val DnAttribute: String = "ou"
+    val AttributeMappings: Seq[(String, Contact => Either[String, Set[String]])] = Seq(
+        ("objectClass", _ => Right(ObjectClasses)),
+        (DnAttribute, c => Left(c.id)),
+        ("cn", c => Left(c.trimmedName)),
+        ("displayName", c => Left(c.trimmedName)),
+        ("sn", c => Left(c.surname)),
+        ("telephoneNumber", c => Right(c.numbers.map(_.number.toString).toSet)),
+        ("o", c => Right(c.organization.flatMap(_.headOption).toSet)),
+    )
+    val AttributeNames: Set[String] = AttributeMappings.map(_._1.toLowerCase).toSet
 
     def connectAndBindToLdap(conf: SipgateImportConfig): Future[LdapNetworkConnection] = Future {
         val ldapConn = {
@@ -53,8 +66,8 @@ object Main {
 
     def buildRequest(client: StandaloneWSClient, conf: SipgateImportConfig, limit: Int = 5000, offset: Int = 0): StandaloneWSRequest = {
         val headers = Seq(
-            "accept" -> "application/json",
-            "authorization" -> s"Bearer ${conf.sipgateBearerToken}",
+            "Accept" -> "application/json",
+            "Authorization" -> s"${conf.sipgateAuth}",
         )
         client
             .url(SipgateContactsEndpoint)
@@ -67,54 +80,112 @@ object Main {
         val baseDn = new Dn(conf.ldapBaseDn)
 
         val lookup = mutable.Map[String, Entry]()
-        val attributes = Seq("ou", "cn", "telephoneNumber")
-        val cursor = ldapConn.search(baseDn, "(ou=*)", SearchScope.ONELEVEL, attributes: _*)
+        val cursor = ldapConn.search(baseDn, s"($DnAttribute=*)", SearchScope.ONELEVEL)
         while (cursor.next()) {
             val e = cursor.get()
-            val id = e.get("ou").get().toString
+            val id = e.get(DnAttribute).get().toString
             lookup += id -> e
         }
 
         for (contact <- contacts) {
-            val name = contact.name.trim
-            if (name.nonEmpty) {
-
-                lookup.get(contact.id) match {
-                    case Some(existing) if contactsDiffer(contact, existing) =>
-                        ldapConn.delete(existing.getDn)
-                        println(s"Updating contact ${contact.id} (${contact.name})")
-                        createNewEntry(ldapConn, baseDn, contact, name)
-                    case Some(_) =>
-                        println(s"Contact ${contact.id} (${contact.name}) was already up to date!")
-                    case None =>
-                        println(s"Creating new contact ${contact.id} (${contact.name}).")
-                        createNewEntry(ldapConn, baseDn, contact, name)
-
+            if (contact.hasName) {
+                try {
+                    lookup.get(contact.id) match {
+                        case Some(existing) =>
+                            if (updateEntry(ldapConn, existing, contact)) println(s"Updated contact ${contact.id} (${contact.name})")
+                            else println(s"Contact ${contact.id} (${contact.name}) is already up to date!")
+                        case None =>
+                            createNewEntry(ldapConn, baseDn, contact)
+                            println(s"Created new contact ${contact.id} (${contact.name}).")
+                    }
+                } catch {
+                    case e: LdapException =>
+                        System.err.println(s"Failed to process contact ${contact.id} (${contact.name}): ${e.getLocalizedMessage}")
+                        e.printStackTrace(System.err)
+                        System.exit(255)
                 }
             }
         }
+
+        val contactIds = contacts.map(_.id).toSet
+        for ((id, entry) <- lookup if !contactIds.contains(id)) {
+            ldapConn.delete(entry.getDn)
+            println(s"Deleted obsolete entry $id.")
+        }
+
     }
 
-    def contactsDiffer(contact: Contact, ldapEntry: Entry): Boolean = {
-        val name = ldapEntry.get("cn").get().toString
-        val numbers = Option(ldapEntry.get("telephoneNumber")).map(_.iterator().asScala.map(_.toString).toSet).getOrElse(Set.empty)
-        !contact.name.trim.equals(name) || !contact.numbers.map(_.number.toString).toSet.equals(numbers)
+    def updateEntry(ldapConn: LdapNetworkConnection, entry: Entry, contact: Contact): Boolean = {
+
+        val updates = AttributeMappings.flatMap {
+            case (attributeName, mapping) =>
+                mapping(contact) match {
+                    case Left(value) =>
+                        compareAndModify(entry, attributeName, value)
+                    case Right(values) =>
+                        compareAndModify(entry, attributeName, values)
+                }
+        }
+
+        val removals = entry.getAttributes.asScala.map(_.getId).filterNot(AttributeNames.contains).map { attributeName =>
+            new DefaultModification(ModificationOperation.REMOVE_ATTRIBUTE, attributeName)
+        }
+
+        val modifications = updates ++ removals
+
+        if (modifications.nonEmpty) {
+            println(entry)
+            modifications.foreach(println)
+            ldapConn.modify(entry.getDn, modifications: _*)
+            true
+        } else false
     }
 
-    def createNewEntry(ldapConn: LdapNetworkConnection, baseDn: Dn, contact: Contact, name: String): Unit = {
-        val lastSpace = name.lastIndexOf(' ')
-        val surname = if (lastSpace == -1) name else name.substring(lastSpace + 1)
+    def compareAndModify(entry: Entry, attributeName: String, contactValue: String): Option[Modification] = {
+        val attribute = entry.get(attributeName)
+        if (attribute != null) {
+            val ldapValue = attribute.get().toString
+            if (ldapValue != contactValue) Some(new DefaultModification(ModificationOperation.REPLACE_ATTRIBUTE, attributeName, contactValue))
+            else None
+        } else {
+            Some(new DefaultModification(ModificationOperation.ADD_ATTRIBUTE, attributeName, contactValue))
+        }
+    }
+
+    def compareAndModify(entry: Entry, attributeName: String, contactValues: Set[String]): Seq[Modification] = {
+        val attribute = entry.get(attributeName)
+        if (attribute != null) {
+            val ldapValues = attribute.iterator().asScala.map(_.toString).toSet
+            val obsoleteValues = ldapValues.filterNot(contactValues.contains).toSeq
+            val newValues = contactValues.filterNot(ldapValues.contains).toSeq
+
+            val removal = if (obsoleteValues.nonEmpty) {
+                Seq(new DefaultModification(ModificationOperation.REMOVE_ATTRIBUTE, attributeName, obsoleteValues: _*))
+            } else Nil
+
+            val addition = if (newValues.nonEmpty) {
+                Seq(new DefaultModification(ModificationOperation.ADD_ATTRIBUTE, attributeName, newValues: _*))
+            } else Nil
+
+            removal ++ addition
+        } else {
+            if (contactValues.nonEmpty) {
+                Seq(new DefaultModification(ModificationOperation.ADD_ATTRIBUTE, attributeName, contactValues.toSeq: _*))
+            } else Nil
+        }
+    }
+
+    def createNewEntry(ldapConn: LdapNetworkConnection, baseDn: Dn, contact: Contact): Unit = {
 
         val entry = new DefaultEntry()
-        entry.setDn(baseDn.add(s"ou=${contact.id}"))
-        entry.add("objectClass", "top", "inetOrgPerson")
-        entry.add("ou", contact.id)
-        entry.add("cn", name)
-        entry.add("displayName", name)
-        entry.add("sn", surname)
-
-        for (number <- contact.numbers) {
-            entry.add("telephoneNumber", number.number)
+        entry.setDn(baseDn.add(s"$DnAttribute=${contact.id}"))
+        for ((attributeName, mapping) <- AttributeMappings) {
+            mapping(contact) match {
+                case Left(value) =>
+                    entry.add(attributeName, value)
+                case Right(values) =>
+                    entry.add(attributeName, values.toSeq: _*)
+            }
         }
 
         try {
@@ -140,8 +211,6 @@ object Main {
         }
 
         val config = readConfig(configPath)
-
-        println()
 
         val system = ActorSystem()
         system.registerOnTermination {

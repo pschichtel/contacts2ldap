@@ -1,5 +1,5 @@
 {
-  "sipgateBearerToken": "bearer token from oauth flow",
+  "sipgateAuth": "Bearer <bearer token from oauth flow>|Basic <base64 of username:password>",
   "ldapHost": "localhost",
   "ldapPort": 389,
   "ldapBindUser": "cn=admin,dc=example,dc=org",
