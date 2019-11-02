@@ -1,3 +1,5 @@
+package tel.schich.sipgatecontactsync
+
 import java.nio.file.{Files, Path, Paths}
 
 import akka.actor.ActorSystem
@@ -8,15 +10,16 @@ import org.apache.directory.api.ldap.model.message.SearchScope
 import org.apache.directory.api.ldap.model.name.Dn
 import org.apache.directory.ldap.client.api.{LdapConnectionConfig, LdapNetworkConnection}
 import play.api.libs.json.{JsValue, Json}
-import play.api.libs.ws.JsonBodyReadables._
 import play.api.libs.ws.ahc.StandaloneAhcWSClient
 import play.api.libs.ws.{StandaloneWSClient, StandaloneWSRequest}
+import play.api.libs.ws.JsonBodyReadables._
 
 import scala.collection.mutable
-import scala.concurrent.ExecutionContext.Implicits._
 import scala.concurrent.duration.Duration
 import scala.concurrent.{Await, Future}
+import scala.concurrent.ExecutionContext.Implicits._
 import scala.io.Source
+import scala.util.{Either, Left, Right}
 import scala.jdk.CollectionConverters._
 
 object Main {

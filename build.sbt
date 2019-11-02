@@ -13,3 +13,13 @@ libraryDependencies ++= Seq(
     "org.apache.directory.api" % "api-all" % "2.0.0.AM4",
     "com.googlecode.libphonenumber" % "libphonenumber" % "8.10.20",
 )
+
+assemblyJarName := "contacts2ldap.jar"
+mainClass := Some("tel.schich.sipgatecontactsync.Main")
+
+assemblyMergeStrategy in assembly := {
+    case PathList("OSGI-INF", _) => MergeStrategy.discard
+    case p =>
+        val oldStrategy = (assemblyMergeStrategy in assembly).value
+        oldStrategy(p)
+}
