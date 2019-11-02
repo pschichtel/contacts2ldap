@@ -4,6 +4,7 @@ import java.nio.file.{Files, Path, Paths}
 
 import akka.actor.ActorSystem
 import akka.stream.ActorMaterializer
+import com.typesafe.scalalogging.StrictLogging
 import org.apache.directory.api.ldap.model.entry._
 import org.apache.directory.api.ldap.model.exception.{LdapException, LdapOperationException}
 import org.apache.directory.api.ldap.model.message.SearchScope
@@ -22,7 +23,7 @@ import scala.io.Source
 import scala.util.{Either, Left, Right}
 import scala.jdk.CollectionConverters._
 
-object Main {
+object Main extends StrictLogging {
 
     val SipgateContactsEndpoint = "https://api.sipgate.com/v2/contacts"
     //val SipgateContactsEndpoint = "http://localhost:4444/v2/contacts"
@@ -53,8 +54,7 @@ object Main {
             ldapConn.bind(conf.ldapBindUser, conf.ldapBindPassword)
         } catch {
             case e: LdapException =>
-                println(s"Bind failed: ${e.getLocalizedMessage}")
-                e.printStackTrace(System.err)
+                logger.error(s"Bind failed: ${e.getLocalizedMessage}", e)
                 ldapConn.close()
                 throw e
         }
@@ -95,17 +95,15 @@ object Main {
                 try {
                     lookup.get(contact.id) match {
                         case Some(existing) =>
-                            if (updateEntry(ldapConn, existing, contact)) println(s"Updated contact ${contact.id} (${contact.name})")
-                            else println(s"Contact ${contact.id} (${contact.name}) is already up to date!")
+                            if (updateEntry(ldapConn, existing, contact)) logger.info(s"Updated contact ${contact.id} (${contact.name})")
+                            else logger.info(s"Contact ${contact.id} (${contact.name}) is already up to date!")
                         case None =>
                             createNewEntry(ldapConn, baseDn, contact)
-                            println(s"Created new contact ${contact.id} (${contact.name}).")
+                            logger.info(s"Created new contact ${contact.id} (${contact.name}).")
                     }
                 } catch {
                     case e: LdapException =>
-                        System.err.println(s"Failed to process contact ${contact.id} (${contact.name}): ${e.getLocalizedMessage}")
-                        e.printStackTrace(System.err)
-                        System.exit(255)
+                        logger.warn(s"Failed to process contact ${contact.id} (${contact.name}): ${e.getLocalizedMessage}", e)
                 }
             }
         }
@@ -195,8 +193,31 @@ object Main {
             ldapConn.add(entry)
         } catch {
             case e: LdapOperationException =>
-                System.err.println("Failed to add entry!")
-                e.printStackTrace(System.err)
+                logger.warn("Failed to add entry!", e)
+        }
+    }
+
+    def continuouslyImport(conf: SipgateImportConfig, wsClient: StandaloneWSClient): Future[Unit] = {
+        val futureContacts = buildRequest(wsClient, conf)
+            .get()
+            .map { r =>
+                if (r.status == 200) Right(r.body[JsValue].as[Contacts])
+                else Left(s"HTTP request failed: ${r.statusText}")
+            }
+
+
+        futureContacts.flatMap {
+            case Right(contacts) =>
+                connectAndBindToLdap(conf).map { ldapConn =>
+                    try {
+                        importContacts(conf, contacts.items, ldapConn)
+                    } finally {
+                        ldapConn.close()
+                    }
+                }
+            case Left(error) =>
+                logger.warn(s"Error: $error")
+                Future.successful(())
         }
     }
 
@@ -216,34 +237,15 @@ object Main {
         val config = readConfig(configPath)
 
         val system = ActorSystem()
-        system.registerOnTermination {
-            System.exit(0)
-        }
         val wsClient = StandaloneAhcWSClient()(ActorMaterializer()(system))
 
-        val futureContacts = buildRequest(wsClient, config)
-            .get()
-            .map { r =>
-                if (r.status == 200) Right(r.body[JsValue].as[Contacts])
-                else Left(s"HTTP request failed: ${r.statusText}")
-            }
-
-
-        val finished = futureContacts.flatMap {
-            case Right(contacts) =>
-                connectAndBindToLdap(config).map { ldapConn =>
-                    try {
-                        importContacts(config, contacts.items, ldapConn)
-                    } finally {
-                        ldapConn.close()
-                    }
-                }
-            case Left(error) =>
-                System.err.println(s"Error: $error")
-                Future.successful(())
+        while (true) {
+            logger.info("Synchronization started!")
+            Await.ready(continuouslyImport(config, wsClient), Duration.Inf)
+            logger.info(s"Synchronization complete, waiting for ${config.resyncDelay.toMinutes} minutes...")
+            Thread.sleep(config.resyncDelay.toMillis)
         }
 
-        Await.ready(finished, Duration.Inf)
         wsClient.close()
         system.terminate()
     }

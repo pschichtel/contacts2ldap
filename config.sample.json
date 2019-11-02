@@ -1,4 +1,5 @@
 {
+  "resyncDelay": "PT5M",
   "sipgateAuth": "Bearer <bearer token from oauth flow>|Basic <base64 of username:password>",
   "ldapHost": "localhost",
   "ldapPort": 389,

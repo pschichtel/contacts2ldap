@@ -12,6 +12,8 @@ libraryDependencies ++= Seq(
     "com.typesafe.play" %% "play-ws-standalone-json" % playWsVersion,
     "org.apache.directory.api" % "api-all" % "2.0.0.AM4",
     "com.googlecode.libphonenumber" % "libphonenumber" % "8.10.20",
+    "com.typesafe.scala-logging" %% "scala-logging" % "3.9.2",
+    "ch.qos.logback" % "logback-classic" % "1.2.3",
 )
 
 assemblyJarName := "contacts2ldap.jar"

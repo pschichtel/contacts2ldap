@@ -1,0 +1,29 @@
+<configuration>
+
+  <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
+    <encoder>
+      <pattern>%d %level - %message%n%xException{10}</pattern>
+    </encoder>
+  </appender>
+
+  <appender name="ASYNCSTDOUT" class="ch.qos.logback.classic.AsyncAppender">
+    <!-- increases the default queue size -->
+    <queueSize>512</queueSize>
+    <!-- don't discard messages -->
+    <discardingThreshold>0</discardingThreshold>
+    <!-- block when queue is full -->
+    <neverBlock>false</neverBlock>
+    <appender-ref ref="STDOUT" />
+  </appender>
+
+  <logger name="org.apache.directory.api.ldap.codec.osgi.DefaultLdapCodecService" level="OFF" />
+  <logger name="org.apache.directory.api.ldap.codec.StockCodecFactoryUtil" level="OFF" />
+  <logger name="org.apache.directory.api.ldap.extras.ExtrasCodecFactoryUtil" level="OFF" />
+
+  <root level="INFO">
+    <appender-ref ref="ASYNCSTDOUT" />
+  </root>
+
+  <shutdownHook class="ch.qos.logback.core.hook.DelayingShutdownHook"/>
+
+</configuration>
