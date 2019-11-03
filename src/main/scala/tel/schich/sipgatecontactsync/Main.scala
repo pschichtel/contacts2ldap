@@ -96,7 +96,7 @@ object Main extends StrictLogging {
                     lookup.get(contact.id) match {
                         case Some(existing) =>
                             if (updateEntry(ldapConn, existing, contact)) logger.info(s"Updated contact ${contact.id} (${contact.name})")
-                            else logger.info(s"Contact ${contact.id} (${contact.name}) is already up to date!")
+                            else logger.debug(s"Contact ${contact.id} (${contact.name}) is already up to date!")
                         case None =>
                             createNewEntry(ldapConn, baseDn, contact)
                             logger.info(s"Created new contact ${contact.id} (${contact.name}).")
