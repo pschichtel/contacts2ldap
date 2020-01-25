@@ -16,6 +16,8 @@ libraryDependencies ++= Seq(
     "ch.qos.logback" % "logback-classic" % "1.2.3",
 )
 
+scalacOptions ++= Seq("-unchecked", "-deprecation")
+
 assemblyJarName := "contacts2ldap.jar"
 mainClass := Some("tel.schich.sipgatecontactsync.Main")
 

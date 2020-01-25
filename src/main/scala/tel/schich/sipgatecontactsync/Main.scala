@@ -3,7 +3,7 @@ package tel.schich.sipgatecontactsync
 import java.nio.file.{Files, Path, Paths}
 
 import akka.actor.ActorSystem
-import akka.stream.ActorMaterializer
+import akka.stream.{ActorMaterializer, Materializer}
 import com.typesafe.scalalogging.StrictLogging
 import org.apache.directory.api.ldap.model.entry._
 import org.apache.directory.api.ldap.model.exception.{LdapException, LdapOperationException}
@@ -248,8 +248,9 @@ object Main extends StrictLogging {
 
         val config = readConfig(configPath)
 
-        val system = ActorSystem()
-        val wsClient = StandaloneAhcWSClient()(ActorMaterializer()(system))
+        implicit val system: ActorSystem = ActorSystem()
+        implicit val materializer: Materializer = Materializer.matFromSystem
+        val wsClient = StandaloneAhcWSClient()
 
         while (true) {
             logger.info("Synchronization started!")
