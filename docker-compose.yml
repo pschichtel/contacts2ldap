@@ -2,6 +2,7 @@ version: '3.7'
 services:
   ldap:
     image: osixia/openldap:1.2.4
+    command: ['--copy-service']
     restart: always
     environment:
       LDAP_ORGANISATION: "sanitaetshaus"
@@ -18,6 +19,7 @@ services:
       - type: volume
         source: ldap-conf
         target: /etc/ldap/slapd.d
+      - './deploy/ldap:/container/service/slapd/assets/config/bootstrap/ldif/custom:ro'
 volumes:
   ldap-db:
   ldap-conf:

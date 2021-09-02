@@ -1,0 +1,11 @@
+version: 1
+
+dn: ou=contacts,dc=schich,dc=tel
+objectClass: top
+objectClass: organizationalUnit
+ou: contacts
+
+dn: ou=sipgate,ou=contacts,dc=schich,dc=tel
+objectClass: top
+objectClass: organizationalUnit
+ou: sipgate
