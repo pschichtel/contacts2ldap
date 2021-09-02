@@ -3,7 +3,7 @@ package tel.schich.sipgatecontactsync
 import java.nio.file.{Files, Path, Paths}
 
 import akka.actor.ActorSystem
-import akka.stream.{ActorMaterializer, Materializer}
+import akka.stream.Materializer
 import com.typesafe.scalalogging.StrictLogging
 import org.apache.directory.api.ldap.model.entry._
 import org.apache.directory.api.ldap.model.exception.{LdapException, LdapOperationException}
@@ -36,7 +36,7 @@ object Main extends StrictLogging {
         ("cn", c => Left(c.trimmedName)),
         ("displayName", c => Left(c.trimmedName)),
         ("sn", c => Left(c.surname)),
-        ("telephoneNumber", c => Right(c.numbers.map(_.number.toString).toSet)),
+        ("telephoneNumber", c => Right(c.numbers.map(_.number).toSet)),
         ("o", c => Right(c.organization.flatMap(_.headOption).toSet)),
     )
     val AttributeNames: Set[String] = AttributeMappings.map(_._1.toLowerCase).toSet
@@ -63,8 +63,13 @@ object Main extends StrictLogging {
     }
 
     def readConfig(path: Path): SipgateImportConfig = {
-        val content = Source.fromFile(path.toFile).mkString
-        Json.parse(content).as[SipgateImportConfig]
+        val source = Source.fromFile(path.toFile)
+        try {
+            val content = source.mkString
+            Json.parse(content).as[SipgateImportConfig]
+        } finally {
+            source.close()
+        }
     }
 
     def buildRequest(client: StandaloneWSClient, conf: SipgateImportConfig, limit: Int = 5000, offset: Int = 0): StandaloneWSRequest = {
@@ -163,8 +168,8 @@ object Main extends StrictLogging {
                 Seq(new DefaultModification(ModificationOperation.REMOVE_ATTRIBUTE, attributeName)) // no values empty -> remove entire attribute
             } else {
                 val ldapValues = attribute.iterator().asScala.map(_.toString).toSet
-                val obsoleteValues = ldapValues.filterNot(contactValues.contains).toSeq
-                val newValues = contactValues.filterNot(ldapValues.contains).toSeq
+                val obsoleteValues = ldapValues.diff(contactValues).toSeq
+                val newValues = contactValues.diff(ldapValues).toSeq
 
                 val removal = if (obsoleteValues.nonEmpty) {
                     Seq(new DefaultModification(ModificationOperation.REMOVE_ATTRIBUTE, attributeName, obsoleteValues: _*)) // remove obsolete values
