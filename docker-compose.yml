@@ -10,7 +10,7 @@ services:
     expose:
       - "389/tcp" # non-TLS LDAP
     ports:
-      - 389:389
+      - '389:389'
     volumes:
       - type: volume
         source: ldap-db
