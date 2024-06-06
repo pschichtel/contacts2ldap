@@ -1,1 +1,1 @@
-addSbtPlugin("de.gccc.sbt" % "sbt-jib" % "0.10.0")
+addSbtPlugin("de.gccc.sbt" % "sbt-jib" % "1.3.7")

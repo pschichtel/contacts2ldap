@@ -6,7 +6,13 @@ import com.google.i18n.phonenumbers.{NumberParseException, PhoneNumberUtil}
 import com.google.i18n.phonenumbers.PhoneNumberUtil.PhoneNumberFormat
 import play.api.libs.json.{Format, JsError, JsResult, JsString, JsSuccess, JsValue, Json}
 
-case class SipgateImportConfig(resyncDelay: Duration, sipgateAuth: String, ldapHost: String, ldapPort: Int, ldapBindUser: String, ldapBindPassword: String, ldapBaseDn: String)
+case class SipgateImportConfig(resyncDelay: Duration,
+                               sipgateAuth: String,
+                               ldapHost: String,
+                               ldapPort: Int,
+                               ldapBindUser: String,
+                               ldapBindPassword: String,
+                               ldapBaseDn: String)
 
 object SipgateImportConfig {
     implicit val format: Format[SipgateImportConfig] = Json.format
@@ -39,7 +45,7 @@ object ContactEmail {
 }
 
 object ContactNumber {
-    type InternationalNumber = String
+    private type InternationalNumber = String
 
     implicit val format: Format[ContactNumber] = Json.format
 

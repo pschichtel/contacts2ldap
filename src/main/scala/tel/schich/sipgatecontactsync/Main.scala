@@ -25,12 +25,12 @@ import scala.jdk.CollectionConverters._
 
 object Main extends StrictLogging {
 
-    val SipgateContactsEndpoint = "https://api.sipgate.com/v2/contacts"
+    private val SipgateContactsEndpoint = "https://api.sipgate.com/v2/contacts"
     //val SipgateContactsEndpoint = "http://localhost:4444/v2/contacts"
 
-    val ObjectClasses: Set[String] = Set("top", "inetOrgPerson")
-    val DnAttribute: String = "ou"
-    val AttributeMappings: Seq[(String, Contact => Either[String, Set[String]])] = Seq(
+    private val ObjectClasses: Set[String] = Set("top", "inetOrgPerson")
+    private val DnAttribute: String = "ou"
+    private val AttributeMappings: Seq[(String, Contact => Either[String, Set[String]])] = Seq(
         ("objectClass", _ => Right(ObjectClasses)),
         (DnAttribute, c => Left(c.id)),
         ("cn", c => Left(c.trimmedName)),
@@ -39,9 +39,9 @@ object Main extends StrictLogging {
         ("telephoneNumber", c => Right(c.numbers.map(_.number).toSet)),
         ("o", c => Right(c.organization.flatMap(_.headOption).toSet)),
     )
-    val AttributeNames: Set[String] = AttributeMappings.map(_._1.toLowerCase).toSet
+    private val AttributeNames: Set[String] = AttributeMappings.map(_._1.toLowerCase).toSet
 
-    def connectAndBindToLdap(conf: SipgateImportConfig): Future[LdapNetworkConnection] = Future {
+    private def connectAndBindToLdap(conf: SipgateImportConfig): Future[LdapNetworkConnection] = Future {
         val ldapConn = {
             val ldapConfig = new LdapConnectionConfig
             ldapConfig.setLdapHost(conf.ldapHost)
@@ -62,7 +62,7 @@ object Main extends StrictLogging {
         ldapConn
     }
 
-    def readConfig(path: Path): SipgateImportConfig = {
+    private def readConfig(path: Path): SipgateImportConfig = {
         val source = Source.fromFile(path.toFile)
         try {
             val content = source.mkString
@@ -72,7 +72,7 @@ object Main extends StrictLogging {
         }
     }
 
-    def buildRequest(client: StandaloneWSClient, conf: SipgateImportConfig, limit: Int = 5000, offset: Int = 0): StandaloneWSRequest = {
+    private def buildRequest(client: StandaloneWSClient, conf: SipgateImportConfig, limit: Int = 5000, offset: Int = 0): StandaloneWSRequest = {
         val headers = Seq(
             "Accept" -> "application/json",
             "Authorization" -> s"${conf.sipgateAuth}",
@@ -80,10 +80,10 @@ object Main extends StrictLogging {
         client
             .url(SipgateContactsEndpoint)
             .withQueryStringParameters("limit" -> limit.toString, "offset" -> offset.toString)
-            .withHttpHeaders(headers: _*)
+            .withHttpHeaders(headers*)
     }
 
-    def importContacts(conf: SipgateImportConfig, contacts: Seq[Contact], ldapConn: LdapNetworkConnection): Unit = {
+    private def importContacts(conf: SipgateImportConfig, contacts: Seq[Contact], ldapConn: LdapNetworkConnection): Unit = {
 
         val baseDn = new Dn(conf.ldapBaseDn)
 
@@ -121,7 +121,7 @@ object Main extends StrictLogging {
 
     }
 
-    def updateEntry(ldapConn: LdapNetworkConnection, entry: Entry, contact: Contact): Boolean = {
+    private def updateEntry(ldapConn: LdapNetworkConnection, entry: Entry, contact: Contact): Boolean = {
 
         val updates = AttributeMappings.flatMap {
             case (attributeName, mapping) =>
@@ -142,12 +142,12 @@ object Main extends StrictLogging {
         if (modifications.nonEmpty) {
             println(entry)
             modifications.foreach(println)
-            ldapConn.modify(entry.getDn, modifications: _*)
+            ldapConn.modify(entry.getDn, modifications*)
             true
         } else false
     }
 
-    def compareAndModify(entry: Entry, attributeName: String, contactValue: String): Option[Modification] = {
+    private def compareAndModify(entry: Entry, attributeName: String, contactValue: String): Option[Modification] = {
         val attribute = entry.get(attributeName)
         if (attribute != null) {
             val ldapValue = attribute.get().toString
@@ -161,7 +161,7 @@ object Main extends StrictLogging {
         }
     }
 
-    def compareAndModify(entry: Entry, attributeName: String, contactValues: Set[String]): Seq[Modification] = {
+    private def compareAndModify(entry: Entry, attributeName: String, contactValues: Set[String]): Seq[Modification] = {
         val attribute = entry.get(attributeName)
         if (attribute != null) {
             if (contactValues.isEmpty) {
@@ -172,24 +172,23 @@ object Main extends StrictLogging {
                 val newValues = contactValues.diff(ldapValues).toSeq
 
                 val removal = if (obsoleteValues.nonEmpty) {
-                    Seq(new DefaultModification(ModificationOperation.REMOVE_ATTRIBUTE, attributeName, obsoleteValues: _*)) // remove obsolete values
+                    Seq(new DefaultModification(ModificationOperation.REMOVE_ATTRIBUTE, attributeName, obsoleteValues*)) // remove obsolete values
                 } else Nil
 
                 val addition = if (newValues.nonEmpty) {
-                    Seq(new DefaultModification(ModificationOperation.ADD_ATTRIBUTE, attributeName, newValues: _*)) // add new values
+                    Seq(new DefaultModification(ModificationOperation.ADD_ATTRIBUTE, attributeName, newValues*)) // add new values
                 } else Nil
 
                 removal ++ addition
             }
         } else {
             if (contactValues.nonEmpty) {
-                Seq(new DefaultModification(ModificationOperation.ADD_ATTRIBUTE, attributeName, contactValues.toSeq: _*)) // no existing attribute -> add all new values
+                Seq(new DefaultModification(ModificationOperation.ADD_ATTRIBUTE, attributeName, contactValues.toSeq*)) // no existing attribute -> add all new values
             } else Nil
         }
     }
 
-    def createNewEntry(ldapConn: LdapNetworkConnection, baseDn: Dn, contact: Contact): Unit = {
-
+    private def createNewEntry(ldapConn: LdapNetworkConnection, baseDn: Dn, contact: Contact): Unit = {
         val entry = new DefaultEntry()
         entry.setDn(baseDn.add(s"$DnAttribute=${contact.id}"))
         for ((attributeName, mapping) <- AttributeMappings) {
@@ -200,7 +199,7 @@ object Main extends StrictLogging {
                     }
                 case Right(values) =>
                     if (values.nonEmpty) {
-                        entry.add(attributeName, values.toSeq: _*)
+                        entry.add(attributeName, values.toSeq*)
                     }
             }
         }
@@ -214,7 +213,7 @@ object Main extends StrictLogging {
         }
     }
 
-    def continuouslyImport(conf: SipgateImportConfig, wsClient: StandaloneWSClient): Future[Unit] = {
+    private def continuouslyImport(conf: SipgateImportConfig, wsClient: StandaloneWSClient): Future[Unit] = {
         val futureContacts = buildRequest(wsClient, conf)
             .get()
             .map { r =>

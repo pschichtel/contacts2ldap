@@ -1,7 +1,6 @@
-version: '3.7'
 services:
   ldap:
-    image: osixia/openldap:1.2.4
+    image: osixia/openldap:stable
     command: ['--copy-service']
     restart: always
     environment:
