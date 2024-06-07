@@ -1,27 +1,25 @@
 package tel.schich.sipgatecontactsync
 
 import java.nio.file.{Files, Path, Paths}
-
-import akka.actor.ActorSystem
-import akka.stream.Materializer
 import com.typesafe.scalalogging.StrictLogging
-import org.apache.directory.api.ldap.model.entry._
+import io.circe.parser.*
+import org.apache.directory.api.ldap.model.entry.*
 import org.apache.directory.api.ldap.model.exception.{LdapException, LdapOperationException}
 import org.apache.directory.api.ldap.model.message.SearchScope
 import org.apache.directory.api.ldap.model.name.Dn
 import org.apache.directory.ldap.client.api.{LdapConnectionConfig, LdapNetworkConnection}
-import play.api.libs.json.{JsValue, Json}
-import play.api.libs.ws.ahc.StandaloneAhcWSClient
-import play.api.libs.ws.{StandaloneWSClient, StandaloneWSRequest}
-import play.api.libs.ws.JsonBodyReadables._
 
+import java.net.URI
+import java.net.http.HttpResponse.BodyHandlers
+import java.net.http.{HttpClient, HttpRequest}
 import scala.collection.mutable
+import scala.compat.java8.FutureConverters.CompletionStageOps
 import scala.concurrent.duration.Duration
 import scala.concurrent.{Await, Future}
-import scala.concurrent.ExecutionContext.Implicits._
+import scala.concurrent.ExecutionContext.Implicits.*
 import scala.io.Source
 import scala.util.{Either, Left, Right}
-import scala.jdk.CollectionConverters._
+import scala.jdk.CollectionConverters.*
 
 object Main extends StrictLogging {
 
@@ -36,7 +34,7 @@ object Main extends StrictLogging {
         ("cn", c => Left(c.trimmedName)),
         ("displayName", c => Left(c.trimmedName)),
         ("sn", c => Left(c.surname)),
-        ("telephoneNumber", c => Right(c.numbers.map(_.number).toSet)),
+        ("telephoneNumber", c => Right(c.numbers.map(_.number.e164).toSet)),
         ("o", c => Right(c.organization.flatMap(_.headOption).toSet)),
     )
     private val AttributeNames: Set[String] = AttributeMappings.map(_._1.toLowerCase).toSet
@@ -66,21 +64,20 @@ object Main extends StrictLogging {
         val source = Source.fromFile(path.toFile)
         try {
             val content = source.mkString
-            Json.parse(content).as[SipgateImportConfig]
+            parse(content).flatMap(_.as[SipgateImportConfig]).getOrElse(null)
         } finally {
             source.close()
         }
     }
 
-    private def buildRequest(client: StandaloneWSClient, conf: SipgateImportConfig, limit: Int = 5000, offset: Int = 0): StandaloneWSRequest = {
-        val headers = Seq(
-            "Accept" -> "application/json",
-            "Authorization" -> s"${conf.sipgateAuth}",
-        )
-        client
-            .url(SipgateContactsEndpoint)
-            .withQueryStringParameters("limit" -> limit.toString, "offset" -> offset.toString)
-            .withHttpHeaders(headers*)
+    private def buildRequest(conf: SipgateImportConfig, limit: Int = 5000, offset: Int = 0): HttpRequest = {
+        val separator = if (SipgateContactsEndpoint.contains('?')) '&' else '?'
+        val fullUri = s"$SipgateContactsEndpoint${separator}limit=$limit&offset=$offset"
+        HttpRequest.newBuilder(URI(fullUri))
+          .header("Accept", "application/json")
+          .headers("Authorization", s"${conf.sipgateAuth}")
+          .GET()
+          .build()
     }
 
     private def importContacts(conf: SipgateImportConfig, contacts: Seq[Contact], ldapConn: LdapNetworkConnection): Unit = {
@@ -116,7 +113,7 @@ object Main extends StrictLogging {
         val contactIds = contacts.map(_.id).toSet
         for ((id, entry) <- lookup if !contactIds.contains(id)) {
             ldapConn.delete(entry.getDn)
-            println(s"Deleted obsolete entry $id.")
+            logger.info(s"Deleted obsolete entry $id.")
         }
 
     }
@@ -140,8 +137,8 @@ object Main extends StrictLogging {
         val modifications = updates ++ removals
 
         if (modifications.nonEmpty) {
-            println(entry)
-            modifications.foreach(println)
+            logger.debug(s"$entry")
+            modifications.foreach { m => logger.debug(s"$m") }
             ldapConn.modify(entry.getDn, modifications*)
             true
         } else false
@@ -213,17 +210,13 @@ object Main extends StrictLogging {
         }
     }
 
-    private def continuouslyImport(conf: SipgateImportConfig, wsClient: StandaloneWSClient): Future[Unit] = {
-        val futureContacts = buildRequest(wsClient, conf)
-            .get()
-            .map { r =>
-                if (r.status == 200) Right(r.body[JsValue].as[Contacts])
-                else Left(s"HTTP request failed: ${r.statusText}")
+    private def continuouslyImport(conf: SipgateImportConfig, wsClient: HttpClient): Future[Any] = {
+        wsClient.sendAsync(buildRequest(conf), BodyHandlers.ofString()).toScala
+            .flatMap { r =>
+                if (r.statusCode() == 200) Future { parse(r.body()).flatMap(_.as[Contacts]).getOrElse(null) }
+                else Future.failed(Exception(s"HTTP request failed: ${r.statusCode()}"))
             }
-
-
-        futureContacts.flatMap {
-            case Right(contacts) =>
+            .map { contacts =>
                 connectAndBindToLdap(conf).map { ldapConn =>
                     try {
                         importContacts(conf, contacts.items, ldapConn)
@@ -231,10 +224,8 @@ object Main extends StrictLogging {
                         ldapConn.close()
                     }
                 }
-            case Left(error) =>
-                logger.warn(s"Error: $error")
-                Future.successful(())
-        }
+                contacts
+            }
     }
 
     def main(args: Array[String]): Unit = {
@@ -252,9 +243,7 @@ object Main extends StrictLogging {
 
         val config = readConfig(configPath)
 
-        implicit val system: ActorSystem = ActorSystem()
-        implicit val materializer: Materializer = Materializer.matFromSystem
-        val wsClient = StandaloneAhcWSClient()
+        val wsClient = HttpClient.newHttpClient()
 
         while (true) {
             logger.info("Synchronization started!")
@@ -264,6 +253,5 @@ object Main extends StrictLogging {
         }
 
         wsClient.close()
-        system.terminate()
     }
 }
