@@ -5,7 +5,7 @@ version := "0.2"
 scalaVersion := "3.4.2"
 
 libraryDependencies ++= Seq(
-    "org.apache.directory.api" % "api-all" % "2.1.6",
+    "org.apache.directory.api" % "api-all" % "2.1.7",
     "com.googlecode.libphonenumber" % "libphonenumber" % "8.13.37",
     "com.typesafe.scala-logging" %% "scala-logging" % "3.9.5",
     "ch.qos.logback" % "logback-classic" % "1.5.6",
