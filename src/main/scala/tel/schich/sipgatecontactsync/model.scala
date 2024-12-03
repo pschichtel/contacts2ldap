@@ -3,7 +3,6 @@ package tel.schich.sipgatecontactsync
 import java.time.Duration
 import com.google.i18n.phonenumbers.{NumberParseException, PhoneNumberUtil}
 import com.google.i18n.phonenumbers.PhoneNumberUtil.PhoneNumberFormat
-import io.circe.Decoder.Result
 import io.circe.{Decoder, Encoder, HCursor}
 import io.circe.derivation.{Configuration, ConfiguredCodec}
 
