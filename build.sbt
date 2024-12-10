@@ -2,7 +2,7 @@ name := "SipgateContactSync"
 
 version := "0.2"
 
-scalaVersion := "3.6.1"
+scalaVersion := "3.6.2"
 
 libraryDependencies ++= Seq(
     "org.apache.directory.api" % "api-all" % "2.1.7",
