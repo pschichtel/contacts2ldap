@@ -11,15 +11,14 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+      - uses: sbt/setup-sbt@v1
       - uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
           java-version: '21'
-      - name: Coursier cache
-        uses: coursier/cache-action@v6
+          cache: sbt
       - name: Build and Publish
         env:
           JIB_TARGET_IMAGE_USERNAME: ${{ github.actor }}
           JIB_TARGET_IMAGE_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          sbt -v -Dfile.encoding=UTF-8 jibImageBuild
+        run: sbt jibImageBuild
